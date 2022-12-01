@@ -440,7 +440,7 @@ void application_init(void)
 
     led_strip.update_task_id = twr_scheduler_register(led_strip_update_task, NULL, 0);
 
-    twr_radio_pairing_request("vyz-fve-baterry-monitor", FW_VERSION);
+    twr_radio_pairing_request("vyz-fve-battery-monitor", FW_VERSION);
 
     twr_scheduler_register(switch_to_normal_mode_task, NULL, SERVICE_INTERVAL_INTERVAL);
 
