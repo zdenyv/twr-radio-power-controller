@@ -1,16 +1,14 @@
 #include <application.h>
 
+#define FW_VERSION "1.0"
+
 #define TEMPERATURE_PUB_NO_CHANGE_INTEVAL (15 * 60 * 1000)
 #define TEMPERATURE_PUB_VALUE_CHANGE 0.2f
 #define TEMPERATURE_UPDATE_INTERVAL (1 * 1000)
 
-#define SERVICE_INTERVAL_INTERVAL (60 * 60 * 1000)
-#define BATTERY_UPDATE_INTERVAL   (60 * 60 * 1000)
-
-#define UPDATE_SERVICE_INTERVAL            (5 * 1000)
-#define UPDATE_NORMAL_INTERVAL             (10 * 1000)
-#define BAROMETER_UPDATE_SERVICE_INTERVAL  (1 * 60 * 1000)
-#define BAROMETER_UPDATE_NORMAL_INTERVAL   (5 * 60 * 1000)
+#define HYGROMETER_UPDATE_INTERVAL (1 * 60 * 1000)
+#define LUX_UPDATE_INTERVAL        (1 * 1000)
+#define BAROMETER_UPDATE_INTERVAL  (1 * 60 * 1000)
 
 #define TEMPERATURE_TAG_PUB_NO_CHANGE_INTEVAL (15 * 60 * 1000)
 #define TEMPERATURE_TAG_PUB_VALUE_CHANGE 0.2f
@@ -394,16 +392,6 @@ void climate_module_event_handler(twr_module_climate_event_t event, void *event_
     }
 }
 
-void switch_to_normal_mode_task(void *param)
-{
-    twr_module_climate_set_update_interval_thermometer(UPDATE_NORMAL_INTERVAL);
-    twr_module_climate_set_update_interval_hygrometer(UPDATE_NORMAL_INTERVAL);
-    twr_module_climate_set_update_interval_lux_meter(UPDATE_NORMAL_INTERVAL);
-    twr_module_climate_set_update_interval_barometer(BAROMETER_UPDATE_NORMAL_INTERVAL);
-
-    twr_scheduler_unregister(twr_scheduler_get_current_task_id());
-}
-
 void application_init(void)
 {
     // Initialize LED
@@ -426,10 +414,10 @@ void application_init(void)
     // Initialize climate module
     twr_module_climate_init();
     twr_module_climate_set_event_handler(climate_module_event_handler, NULL);
-    twr_module_climate_set_update_interval_thermometer(UPDATE_SERVICE_INTERVAL);
-    twr_module_climate_set_update_interval_hygrometer(UPDATE_SERVICE_INTERVAL);
-    twr_module_climate_set_update_interval_lux_meter(UPDATE_SERVICE_INTERVAL);
-    twr_module_climate_set_update_interval_barometer(BAROMETER_UPDATE_SERVICE_INTERVAL);
+    twr_module_climate_set_update_interval_thermometer(TEMPERATURE_UPDATE_INTERVAL);
+    twr_module_climate_set_update_interval_hygrometer(HYGROMETER_UPDATE_INTERVAL);
+    twr_module_climate_set_update_interval_lux_meter(LUX_UPDATE_INTERVAL);
+    twr_module_climate_set_update_interval_barometer(BAROMETER_UPDATE_INTERVAL);
     twr_module_climate_measure_all_sensors();
 
     // Initialize power module
@@ -441,8 +429,6 @@ void application_init(void)
     led_strip.update_task_id = twr_scheduler_register(led_strip_update_task, NULL, 0);
 
     twr_radio_pairing_request("vyz-fve-battery-monitor", FW_VERSION);
-
-    twr_scheduler_register(switch_to_normal_mode_task, NULL, SERVICE_INTERVAL_INTERVAL);
 
     twr_led_pulse(&led, 2000);
 }
