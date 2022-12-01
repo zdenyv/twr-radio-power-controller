@@ -1,10 +1,27 @@
 #include <application.h>
 
-#define FW_VERSION "1.0"
+#define VYZ_VERSION "1.0"
+#define THERMOSTAT_SET_POINT 15.0
+static bool heating = false;
+
+/*
+ SENSOR MODULE CONNECTION
+==========================
+
+Sensor Module R1.1 - 5 pin connector
+- , GND , VCC , - , DATA
+
+
+ DS18B20 sensor pinout
+=======================
+VCC - red
+GND - black
+DATA- yellow (white)
+*/
 
 #define TEMPERATURE_PUB_NO_CHANGE_INTEVAL (15 * 60 * 1000)
 #define TEMPERATURE_PUB_VALUE_CHANGE 0.2f
-#define TEMPERATURE_UPDATE_INTERVAL (1 * 1000)
+#define TEMPERATURE_UPDATE_INTERVAL (10 * 1000)
 
 #define HYGROMETER_UPDATE_INTERVAL (1 * 60 * 1000)
 #define LUX_UPDATE_INTERVAL        (1 * 1000)
@@ -22,12 +39,15 @@
 #define BAROMETER_TAG_PUB_NO_CHANGE_INTEVAL (15 * 60 * 1000)
 #define BAROMETER_TAG_PUB_VALUE_CHANGE 20.0f
 
+#define TEMPERATURE_DS18B20_PUB_NO_CHANGE_INTEVAL (5 * 60 * 1000)
+#define TEMPERATURE_DS18B20_PUB_VALUE_CHANGE 0.2f
+
 struct {
     event_param_t temperature;
     event_param_t humidity;
     event_param_t illuminance;
     event_param_t pressure;
-
+    event_param_t temperature_ds18b20;
 } params;
 
 // LED instance
@@ -36,6 +56,8 @@ bool led_state = false;
 
 // Button instance
 twr_button_t button;
+
+static twr_ds18b20_t ds18b20;
 
 // Temperature instance
 twr_tag_temperature_t temperature;
@@ -340,6 +362,13 @@ void climate_module_event_handler(twr_module_climate_event_t event, void *event_
                 params.temperature.value = value;
                 params.temperature.next_pub = twr_scheduler_get_spin_tick() + TEMPERATURE_TAG_PUB_NO_CHANGE_INTEVAL;
             }
+            bool new_heating = value < THERMOSTAT_SET_POINT;
+            if (new_heating != heating) 
+            {
+                twr_module_power_relay_set_state(new_heating);
+                twr_radio_pub_state(TWR_RADIO_PUB_STATE_POWER_MODULE_RELAY, &new_heating);
+                heating = new_heating;
+            }
         }
     }
     else if (event == TWR_MODULE_CLIMATE_EVENT_UPDATE_HYGROMETER)
@@ -392,13 +421,40 @@ void climate_module_event_handler(twr_module_climate_event_t event, void *event_
     }
 }
 
+void ds18b20_event_handler(twr_ds18b20_t *self, uint64_t device_address, twr_ds18b20_event_t e, void *p)
+{
+    (void) p;
+
+    if (e == TWR_DS18B20_EVENT_UPDATE)
+    {
+        float value = NAN;
+
+        twr_ds18b20_get_temperature_celsius(self, device_address, &value);
+
+        //twr_log_debug("UPDATE %" PRIx64 "(%d) = %f", device_address, device_index, value);
+
+        if ((fabs(value - params.temperature_ds18b20.value) >= TEMPERATURE_DS18B20_PUB_VALUE_CHANGE) || (params.temperature_ds18b20.next_pub < twr_scheduler_get_spin_tick()))
+        {
+            static char topic[64];
+            snprintf(topic, sizeof(topic), "ext-thermometer/%" PRIx64 "/temperature", device_address);
+            twr_radio_pub_float(topic, &value);
+            params.temperature_ds18b20.value = value;
+            params.temperature_ds18b20.next_pub = twr_scheduler_get_spin_tick() + TEMPERATURE_DS18B20_PUB_NO_CHANGE_INTEVAL;
+        }
+    }
+
+    twr_scheduler_plan_now(0);
+}
+
 void application_init(void)
 {
+    twr_log_init(TWR_LOG_LEVEL_DUMP, TWR_LOG_TIMESTAMP_ABS);
+
     // Initialize LED
     twr_led_init(&led, TWR_GPIO_LED, false, false);
     twr_led_set_mode(&led, TWR_LED_MODE_OFF);
 
-    twr_radio_init(TWR_RADIO_MODE_NODE_SLEEPING);   // Zdeny: změna na SLEEPING z fw pro climate module
+    twr_radio_init(TWR_RADIO_MODE_NODE_LISTENING);
 
     // Initialize button
     twr_button_init(&button, TWR_GPIO_BUTTON, TWR_GPIO_PULL_DOWN, false);
@@ -420,6 +476,11 @@ void application_init(void)
     twr_module_climate_set_update_interval_barometer(BAROMETER_UPDATE_INTERVAL);
     twr_module_climate_measure_all_sensors();
 
+    // For multiple sensor you can call twr_ds18b20_init() more in sdk/_excamples/ds18b20_multiple
+    twr_ds18b20_init_single(&ds18b20, TWR_DS18B20_RESOLUTION_BITS_12);
+    twr_ds18b20_set_event_handler(&ds18b20, ds18b20_event_handler, NULL);
+    twr_ds18b20_set_update_interval(&ds18b20, TEMPERATURE_UPDATE_INTERVAL);
+
     // Initialize power module
     twr_module_power_init();
 
@@ -428,7 +489,8 @@ void application_init(void)
 
     led_strip.update_task_id = twr_scheduler_register(led_strip_update_task, NULL, 0);
 
-    twr_radio_pairing_request("vyz-fve-battery-monitor", FW_VERSION);
+    twr_radio_pairing_request("vyz-fve-battery-monitor", VYZ_VERSION);
 
     twr_led_pulse(&led, 2000);
+    twr_log_debug("Konec init");
 }
